@@ -1,0 +1,324 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { artifacts, initialWorkflows, issues, projects, workflowSteps } from "./data";
+import type { Artifact, Role, WorkflowRun, WorkflowStatus } from "./types";
+
+type ArtifactSelection = { artifact: Artifact; version: number } | null;
+
+type PrototypeContextValue = {
+  projects: typeof projects;
+  issues: typeof issues;
+  workflows: WorkflowRun[];
+  role: Role;
+  setRole: (role: Role) => void;
+  artifactSelection: ArtifactSelection;
+  openArtifact: (artifact: Artifact) => void;
+  setArtifactVersion: (version: number) => void;
+  closeArtifact: () => void;
+  startWorkflow: (projectId: string, issueId: string, execution: "local" | "cloud", agent: string) => string;
+  pauseWorkflow: (id: string) => void;
+  resumeWorkflow: (id: string) => void;
+  cancelWorkflow: (id: string) => void;
+  retryStep: (workflowId: string, stepId: string) => void;
+  restartStep: (workflowId: string, stepId: string) => void;
+  approveStep: (workflowId: string) => void;
+  rejectStep: (workflowId: string) => void;
+  requestChanges: (workflowId: string, feedback: string) => void;
+  resetDemo: () => void;
+};
+
+const PrototypeContext = createContext<PrototypeContextValue | null>(null);
+
+const cloneWorkflows = () => structuredClone(initialWorkflows);
+
+export function PrototypeProvider({ children }: { children: ReactNode }) {
+  const [workflows, setWorkflows] = useState<WorkflowRun[]>(cloneWorkflows);
+  const [role, setRole] = useState<Role>("active");
+  const [artifactSelection, setArtifactSelection] = useState<ArtifactSelection>(null);
+
+  const updateWorkflow = useCallback(
+    (id: string, updater: (workflow: WorkflowRun) => WorkflowRun) => {
+      setWorkflows((current) =>
+        current.map((workflow) => (workflow.id === id ? updater(workflow) : workflow)),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setWorkflows((current) =>
+        current.map((workflow) => {
+          if (!workflow.simulated || workflow.status !== "running") return workflow;
+          const runningIndex = workflow.steps.findIndex((item) => item.status === "running");
+          if (runningIndex < 0) return workflow;
+          const running = workflow.steps[runningIndex];
+          const nextProgress = Math.min((running.progress ?? 0) + 12, 100);
+          const steps = workflow.steps.map((item, index) =>
+            index === runningIndex ? { ...item, progress: nextProgress } : item,
+          );
+
+          if (nextProgress < 100) return { ...workflow, steps };
+
+          const completed = {
+            ...steps[runningIndex],
+            status: "completed" as const,
+            progress: undefined,
+            duration: running.id === "understand" ? "48s" : "1m 23s",
+            activity: undefined,
+            artifacts:
+              running.id === "understand"
+                ? [artifacts.analysis]
+                : running.id === "plan"
+                  ? [artifacts.plan, artifacts.affected]
+                  : running.id === "validate"
+                    ? [artifacts.tests]
+                    : running.id === "review"
+                      ? [artifacts.review, artifacts.pr]
+                      : running.artifacts,
+          };
+          steps[runningIndex] = completed;
+
+          if (running.id === "understand") {
+            steps[runningIndex + 1] = {
+              ...steps[runningIndex + 1],
+              status: "running",
+              progress: 8,
+              activity: "Mapping affected authentication files and implementation steps…",
+            };
+          } else if (running.id === "plan") {
+            steps[runningIndex + 1] = {
+              ...steps[runningIndex + 1],
+              status: "waiting",
+              activity: "Waiting for your approval",
+              artifacts: [artifacts.plan],
+            };
+            return { ...workflow, status: "waiting", steps };
+          } else if (running.id === "implement") {
+            steps[runningIndex + 1] = {
+              ...steps[runningIndex + 1],
+              status: "running",
+              progress: 10,
+              activity: "Running authentication tests and type checks…",
+            };
+          } else if (running.id === "validate" && !workflow.validationRetried) {
+            steps[runningIndex] = {
+              ...completed,
+              status: "failed",
+              artifacts: [],
+              message: "3 tests failed during OAuth callback validation.",
+            };
+            return { ...workflow, status: "failed", steps };
+          } else if (running.id === "validate") {
+            steps[runningIndex + 1] = {
+              ...steps[runningIndex + 1],
+              status: "running",
+              progress: 12,
+              activity: "Reviewing the final diff and preparing pull request details…",
+            };
+          } else if (running.id === "review") {
+            return { ...workflow, status: "completed", steps };
+          }
+
+          return { ...workflow, steps };
+        }),
+      );
+    }, 900);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const startWorkflow = useCallback(
+    (projectId: string, issueId: string, execution: "local" | "cloud", agent: string) => {
+      const id = `wf-${issueId}-${Date.now()}`;
+      const steps = workflowSteps();
+      steps[0] = {
+        ...steps[0],
+        status: "running",
+        progress: 8,
+        activity: "Reading the issue and identifying repository context…",
+      };
+      const workflow: WorkflowRun = {
+        id,
+        projectId,
+        issueId,
+        workflowName: "Issue → Pull Request",
+        startedBy: "Stefan",
+        execution,
+        agent,
+        status: "running",
+        startedAt: "Just now",
+        steps,
+        simulated: true,
+      };
+      setWorkflows((current) => [workflow, ...current]);
+      return id;
+    },
+    [],
+  );
+
+  const pauseWorkflow = (id: string) =>
+    updateWorkflow(id, (workflow) => ({
+      ...workflow,
+      status: "paused",
+      steps: workflow.steps.map((item) =>
+        item.status === "running" ? { ...item, status: "paused" } : item,
+      ),
+    }));
+
+  const resumeWorkflow = (id: string) =>
+    updateWorkflow(id, (workflow) => ({
+      ...workflow,
+      status: "running",
+      simulated: true,
+      steps: workflow.steps.map((item) =>
+        item.status === "paused" ? { ...item, status: "running" } : item,
+      ),
+    }));
+
+  const cancelWorkflow = (id: string) =>
+    updateWorkflow(id, (workflow) => ({
+      ...workflow,
+      status: "cancelled",
+      steps: workflow.steps.map((item) =>
+        ["running", "paused", "waiting", "pending"].includes(item.status)
+          ? { ...item, status: item.status === "pending" ? "cancelled" : "cancelled" }
+          : item,
+      ),
+    }));
+
+  const retryStep = (workflowId: string, stepId: string) =>
+    updateWorkflow(workflowId, (workflow) => ({
+      ...workflow,
+      status: "running",
+      simulated: true,
+      validationRetried: stepId === "validate" ? true : workflow.validationRetried,
+      steps: workflow.steps.map((item) =>
+        item.id === stepId
+          ? {
+              ...item,
+              status: "running",
+              progress: 8,
+              message: undefined,
+              activity: "Retrying with updated context and recovery guidance…",
+            }
+          : item,
+      ),
+    }));
+
+  const restartStep = (workflowId: string, stepId: string) =>
+    updateWorkflow(workflowId, (workflow) => ({
+      ...workflow,
+      status: "running",
+      simulated: true,
+      steps: workflow.steps.map((item) =>
+        item.id === stepId
+          ? { ...item, status: "running", progress: 5, activity: "Restarting this step…" }
+          : item,
+      ),
+    }));
+
+  const approveStep = (workflowId: string) =>
+    updateWorkflow(workflowId, (workflow) => ({
+      ...workflow,
+      status: "running",
+      simulated: true,
+      steps: workflow.steps.map((item) => {
+        if (item.id === "approval")
+          return { ...item, status: "completed", duration: "Just now", activity: undefined };
+        if (item.id === "implement")
+          return {
+            ...item,
+            status: "running",
+            progress: 7,
+            activity: "Updating authentication middleware and provider configuration…",
+          };
+        return item;
+      }),
+    }));
+
+  const rejectStep = (workflowId: string) =>
+    updateWorkflow(workflowId, (workflow) => ({
+      ...workflow,
+      status: "cancelled",
+      steps: workflow.steps.map((item) =>
+        item.id === "approval"
+          ? { ...item, status: "cancelled", message: "Plan rejected by reviewer." }
+          : item.status === "pending"
+            ? { ...item, status: "cancelled" }
+            : item,
+      ),
+    }));
+
+  const requestChanges = (workflowId: string, feedback: string) =>
+    updateWorkflow(workflowId, (workflow) => ({
+      ...workflow,
+      status: "running",
+      simulated: true,
+      steps: workflow.steps.map((item) => {
+        if (item.id === "approval") return { ...item, status: "pending", activity: undefined };
+        if (item.id === "plan")
+          return {
+            ...item,
+            status: "running",
+            progress: 12,
+            activity: `Revising the plan: ${feedback || "Reviewer requested changes."}`,
+          };
+        return item;
+      }),
+    }));
+
+  const value = useMemo<PrototypeContextValue>(
+    () => ({
+      projects,
+      issues,
+      workflows,
+      role,
+      setRole,
+      artifactSelection,
+      openArtifact: (artifact) =>
+        setArtifactSelection({ artifact, version: artifact.versions[0].version }),
+      setArtifactVersion: (version) =>
+        setArtifactSelection((current) => (current ? { ...current, version } : null)),
+      closeArtifact: () => setArtifactSelection(null),
+      startWorkflow,
+      pauseWorkflow,
+      resumeWorkflow,
+      cancelWorkflow,
+      retryStep,
+      restartStep,
+      approveStep,
+      rejectStep,
+      requestChanges,
+      resetDemo: () => {
+        setWorkflows(cloneWorkflows());
+        setRole("active");
+        setArtifactSelection(null);
+      },
+    }),
+    [artifactSelection, role, startWorkflow, updateWorkflow, workflows],
+  );
+
+  return <PrototypeContext.Provider value={value}>{children}</PrototypeContext.Provider>;
+}
+
+export function usePrototype() {
+  const context = useContext(PrototypeContext);
+  if (!context) throw new Error("usePrototype must be used within PrototypeProvider");
+  return context;
+}
+
+export const statusLabels: Record<WorkflowStatus, string> = {
+  running: "Running",
+  paused: "Paused",
+  waiting: "Needs input",
+  failed: "Failed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
