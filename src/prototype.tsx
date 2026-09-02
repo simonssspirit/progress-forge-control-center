@@ -7,14 +7,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { artifacts, initialWorkflows, issues, projects, workflowSteps } from "./data";
-import type { Artifact, Role, WorkflowRun, WorkflowStatus } from "./types";
+import {
+  artifacts,
+  initialWorkflows,
+  issues as seededIssues,
+  projects as seededProjects,
+  workflowSteps,
+} from "./data";
+import type { Artifact, Issue, Project, Role, WorkflowRun, WorkflowStatus } from "./types";
 
 type ArtifactSelection = { artifact: Artifact; version: number } | null;
 
 type PrototypeContextValue = {
-  projects: typeof projects;
-  issues: typeof issues;
+  projects: Project[];
+  issues: Issue[];
   workflows: WorkflowRun[];
   role: Role;
   setRole: (role: Role) => void;
@@ -31,6 +37,8 @@ type PrototypeContextValue = {
   approveStep: (workflowId: string) => void;
   rejectStep: (workflowId: string) => void;
   requestChanges: (workflowId: string, feedback: string) => void;
+  loadDemoWorkspace: () => void;
+  addProject: (project: Project) => void;
   resetDemo: () => void;
 };
 
@@ -38,8 +46,53 @@ const PrototypeContext = createContext<PrototypeContextValue | null>(null);
 
 const cloneWorkflows = () => structuredClone(initialWorkflows);
 
+const createProjectIssues = (project: Project): Issue[] => [
+  {
+    id: "101",
+    projectId: project.id,
+    title: "Add authentication health checks",
+    description:
+      "Add lightweight health checks for authentication dependencies and return actionable diagnostics when a provider is unavailable.",
+    status: "open",
+    assignee: "Stefan",
+    labels: ["authentication", "reliability"],
+  },
+  {
+    id: "102",
+    projectId: project.id,
+    title: "Improve setup error messages",
+    description:
+      "Make configuration and startup failures easier to understand, including a clear cause and recommended recovery action.",
+    status: "open",
+    assignee: "Elena",
+    labels: ["developer-experience", "observability"],
+  },
+  {
+    id: "103",
+    projectId: project.id,
+    title: "Add project activity summary",
+    description:
+      "Create a compact project summary showing recent changes, active work, and items that require attention.",
+    status: "open",
+    assignee: "Yoan",
+    labels: ["feature", "user-experience"],
+  },
+  {
+    id: "98",
+    projectId: project.id,
+    title: "Refactor configuration validation",
+    description:
+      "Separate configuration parsing from validation so errors can identify the exact invalid field.",
+    status: "closed",
+    assignee: "Stefan",
+    labels: ["refactor"],
+  },
+];
+
 export function PrototypeProvider({ children }: { children: ReactNode }) {
-  const [workflows, setWorkflows] = useState<WorkflowRun[]>(cloneWorkflows);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowRun[]>([]);
   const [role, setRole] = useState<Role>("active");
   const [artifactSelection, setArtifactSelection] = useState<ArtifactSelection>(null);
 
@@ -296,13 +349,31 @@ export function PrototypeProvider({ children }: { children: ReactNode }) {
       approveStep,
       rejectStep,
       requestChanges,
-      resetDemo: () => {
+      loadDemoWorkspace: () => {
+        setProjects(structuredClone(seededProjects));
+        setIssues(structuredClone(seededIssues));
         setWorkflows(cloneWorkflows());
+        setArtifactSelection(null);
+      },
+      addProject: (project) => {
+        setProjects((current) =>
+          current.some((item) => item.id === project.id) ? current : [...current, project],
+        );
+        setIssues((current) =>
+          current.some((item) => item.projectId === project.id)
+            ? current
+            : [...current, ...createProjectIssues(project)],
+        );
+      },
+      resetDemo: () => {
+        setProjects([]);
+        setIssues([]);
+        setWorkflows([]);
         setRole("active");
         setArtifactSelection(null);
       },
     }),
-    [artifactSelection, role, startWorkflow, updateWorkflow, workflows],
+    [artifactSelection, issues, projects, role, startWorkflow, updateWorkflow, workflows],
   );
 
   return <PrototypeContext.Provider value={value}>{children}</PrototypeContext.Provider>;

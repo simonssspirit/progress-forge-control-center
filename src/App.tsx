@@ -63,6 +63,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { usePrototype } from "./prototype";
+import { SetupFlow } from "./setup";
 import type { Artifact, Issue, Role, StepStatus, WorkflowRun, WorkflowStatus } from "./types";
 
 const workflowStatusMeta: Record<
@@ -110,7 +111,9 @@ function ProgressBar({ value, compact = false }: { value: number; compact?: bool
 }
 
 function getIssue(workflow: WorkflowRun, allIssues: Issue[]) {
-  return allIssues.find((issue) => issue.id === workflow.issueId);
+  return allIssues.find(
+    (issue) => issue.id === workflow.issueId && issue.projectId === workflow.projectId,
+  );
 }
 
 function currentStep(workflow: WorkflowRun) {
@@ -174,10 +177,10 @@ function AppShell() {
             );
           })}
         </nav>
-        <button className="sidebar-action">
+        <Link className="sidebar-action" to={`/setup/project?returnTo=${project.id}`}>
           <Plus size={16} />
           Add project
-        </button>
+        </Link>
         <div className="sidebar-spacer" />
         <div className="role-panel">
           <span className="sidebar-label">Prototype role</span>
@@ -247,9 +250,29 @@ export function App() {
   const { projects } = usePrototype();
   return (
     <Routes>
-      <Route path="/" element={<Navigate to={`/projects/${projects[0].id}`} replace />} />
-      <Route path="/projects/:projectId/*" element={<AppShell />} />
-      <Route path="*" element={<Navigate to={`/projects/${projects[0].id}`} replace />} />
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to={projects.length ? `/projects/${projects[0].id}` : "/setup/welcome"}
+            replace
+          />
+        }
+      />
+      <Route path="/setup/*" element={<SetupFlow />} />
+      <Route
+        path="/projects/:projectId/*"
+        element={projects.length ? <AppShell /> : <Navigate to="/setup/welcome" replace />}
+      />
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to={projects.length ? `/projects/${projects[0].id}` : "/setup/welcome"}
+            replace
+          />
+        }
+      />
     </Routes>
   );
 }

@@ -73,3 +73,31 @@ export type Project = {
   repository: string;
   description: string;
 };
+
+export type ConnectionStatus =
+  | "not_checked"
+  | "checking"
+  | "connected"
+  | "needs_authentication"
+  | "failed";
+
+export type SetupMode = "new" | "import";
+export type CodePlatform = "github" | "bitbucket" | "local" | "other";
+export type IssueTracker =
+  | "github_issues"
+  | "jira"
+  | "azure_devops"
+  | "shortcut"
+  | "local"
+  | "other";
+export type CodingAgent = "github_copilot" | "claude_code" | "opencode";
+export type ModelProfile = "stable" | "balanced" | "lite";
+
+export type ProjectMetadata = {
+  name: string;
+  description: string;
+  language: string;
+  frameworks: string[];
+  testingFramework: string;
+  packageManager: string;
+};
